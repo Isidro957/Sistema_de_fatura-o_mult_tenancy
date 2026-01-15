@@ -1,54 +1,90 @@
 <?php
 
-declare(strict_types=1);
-
 use Illuminate\Support\Facades\Route;
-use Stancl\Tenancy\Middleware\InitializeTenancyByDomain;
-use Stancl\Tenancy\Middleware\PreventAccessFromCentralDomains;
-use App\Http\Controllers\TenantAuthController;
+use App\Http\Middleware\ResolveTenant;
+use App\Http\Controllers\ApiAuthController;
+use App\Http\Controllers\Tenant\ProdutoController;
+use App\Http\Controllers\Tenant\CategoriaController;
+use App\Http\Controllers\Tenant\FornecedorController;
+use App\Http\Controllers\Tenant\CompraController;
+use App\Http\Controllers\Tenant\VendaController;
+use App\Http\Controllers\Tenant\PagamentoController;
+use App\Http\Controllers\Tenant\MovimentoStockController;
+use App\Http\Controllers\Tenant\FaturaController;
 use App\Http\Controllers\TenantUserController;
 
 /*
 |--------------------------------------------------------------------------
-| Tenant Routes
+| Rotas do Tenant
 |--------------------------------------------------------------------------
 |
-| Essas rotas só estarão disponíveis quando um tenant estiver ativo.
-| Middleware InitializeTenancyByDomain garante que a conexão
-| com o banco de dados do tenant esteja correta.
+| Todas as rotas aqui são para tenants específicos.
+| O middleware ResolveTenantFromHeader garante que o tenant
+| seja inicializado usando o X-Tenant no header.
 |
 */
 
-Route::middleware([
-    'web',
-    InitializeTenancyByDomain::class,
-    PreventAccessFromCentralDomains::class,
-])->group(function () {
+Route::middleware([ResolveTenant::class])->prefix('tenant')->group(function () {
 
-    // Página inicial do tenant
-    Route::get('/', function () {
-        return view('tenant.dashboard'); // blade do dashboard
-    })->name('tenant.dashboard');
-
-    // Rotas de autenticação do tenant
-    Route::prefix('auth')->group(function () {
-        Route::get('/login', function() { 
-            return view('tenant.auth.login'); 
-        })->name('tenant.login');
-
-        Route::get('/register', function() { 
-            return view('tenant.auth.register'); 
-        })->name('tenant.register');
-
-        Route::post('/register', [TenantAuthController::class, 'register']);
-        Route::post('/login', [TenantAuthController::class, 'login']);
-
-        Route::middleware('auth:tenant')->post('/logout', [TenantAuthController::class, 'logout']);
+    // Dashboard / Info
+    Route::middleware('auth:sanctum')->get('/info', function () {
+        return response()->json([
+            'tenant' => app('tenant'),
+            'user' => request()->user(),
+        ]);
     });
 
-    // Rotas protegidas apenas para usuários logados no tenant
-    Route::middleware('auth:tenant')->group(function () {
-        // CRUD de usuários do tenant
-        Route::resource('users', TenantUserController::class);
+    // Auth tenant
+    Route::prefix('auth')->group(function () {
+        Route::post('/login', [ApiAuthController::class, 'login']);
+        Route::post('/register', [ApiAuthController::class, 'register']);
+        Route::middleware('auth:sanctum')->post('/logout', [ApiAuthController::class, 'logout']);
+    });
+
+    // Rotas protegidas por auth
+    Route::middleware(['auth:sanctum', 'tenant.user'])->group(function () {
+
+        // CRUD Usuários (somente admin)
+        Route::middleware(['role:admin'])->group(function () {
+            Route::apiResource('/users', TenantUserController::class);
+        });
+
+        // CRUD Produtos (admin e operador)
+        Route::middleware(['role:admin,operador'])->group(function () {
+            Route::apiResource('/produtos', ProdutoController::class);
+        });
+
+        // CRUD Categorias (admin e operador)
+        Route::middleware(['role:admin,operador'])->group(function () {
+            Route::apiResource('/categorias', CategoriaController::class);
+        });
+
+        // CRUD Fornecedores (admin e operador)
+        Route::middleware(['role:admin,operador'])->group(function () {
+            Route::apiResource('/fornecedores', FornecedorController::class);
+        });
+
+        // Compras (admin e operador)
+        Route::middleware(['role:admin,operador'])->post('/compras', [CompraController::class, 'store']);
+
+        // Vendas (admin, operador e caixa)
+        Route::middleware(['role:admin,operador,caixa'])->post('/vendas', [VendaController::class, 'store']);
+
+        // Pagamentos (admin, operador e caixa)
+        Route::middleware(['role:admin,operador,caixa'])->group(function () {
+            Route::apiResource('/pagamentos', PagamentoController::class);
+        });
+
+        // Movimentos de stock (admin e operador)
+        Route::middleware(['role:admin,operador'])->group(function () {
+            Route::apiResource('/movimentos-stock', MovimentoStockController::class);
+        });
+
+        // Faturas (admin, operador e caixa)
+        Route::middleware(['role:admin,operador,caixa'])->group(function () {
+            Route::get('/faturas', [FaturaController::class, 'index']);
+            Route::post('/faturas/gerar', [FaturaController::class, 'gerarFatura']);
+        });
+
     });
 });

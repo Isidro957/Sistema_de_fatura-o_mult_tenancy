@@ -5,6 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use App\Http\Middleware\ResolveTenant;
 use App\Http\Middleware\EnsureTenantUser;
+use App\Http\Middleware\RoleMiddleware;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -31,7 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'tenant.user'   => EnsureTenantUser::class,                 // Verifica se user pertence ao tenant
             'auth:sanctum'  => EnsureFrontendRequestsAreStateful::class, // Protege API com token
-             'role' => \App\Http\Middleware\RoleMiddleware::class,
+             'role' => RoleMiddleware::class,
         ]);
     })
 

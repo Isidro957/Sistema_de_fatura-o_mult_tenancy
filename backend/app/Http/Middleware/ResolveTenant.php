@@ -3,95 +3,39 @@
 namespace App\Http\Middleware;
 
 use Closure;
-use App\Models\Tenant;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\URL;
-use Illuminate\Support\Facades\DB;
+use Stancl\Tenancy\Database\Models\Tenant;
 
 class ResolveTenant
 {
     public function handle(Request $request, Closure $next)
     {
-        $host = $request->getHost();
-
-        /*
-        |--------------------------------------------------------------------------
-        | NÃO resolver tenant no login/register global
-        |--------------------------------------------------------------------------
-        */
-        if ($request->is('login') || $request->is('register')) {
+        // Ignorar rotas públicas
+        if (
+            $request->is('sanctum/csrf-cookie') ||
+            $request->is('api/login') ||
+            $request->is('api/register')
+        ) {
             return $next($request);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | AMBIENTE LOCAL (bai.localhost)
-        |--------------------------------------------------------------------------
-        */
-        if (str_ends_with($host, '.faturaja.sdoca') ){
+        // Pegar tenant do header
+        $tenantId = $request->header('X-Tenant');
 
-            $subdomain = explode('.', $host)[0];
-
-            $tenant = Tenant::where('subdomain', $subdomain)->first();
-
-            if (! $tenant) {
-                abort(404, "Tenant '{$subdomain}' não existe.");
-            }
-
-            $this->bootstrapTenant($tenant);
-
-            return $next($request);
+        if (! $tenantId) {
+            abort(400, 'Tenant não informado.');
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | PRODUÇÃO (empresa.dominio.com)
-        |--------------------------------------------------------------------------
-        */
-        $parts = explode('.', $host);
-
-        if (count($parts) < 3) {
-            abort(404, 'Subdomínio não encontrado.');
-        }
-
-        $subdomain = $parts[0];
-
-        if ($subdomain === 'www') {
-            abort(404);
-        }
-
-        $tenant = Tenant::where('subdomain', $subdomain)->first();
+        // Buscar no banco de tenants
+        $tenant = Tenant::where('id', $tenantId)->first();
 
         if (! $tenant) {
-            abort(404, "Tenant '{$subdomain}' não existe.");
+            abort(404, 'Tenant não encontrado.');
         }
 
-        $this->bootstrapTenant($tenant);
+        // Inicializa tenancy
+        tenancy()->initialize($tenant);
 
         return $next($request);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | BOOTSTRAP DO TENANT
-    |--------------------------------------------------------------------------
-    */
-    private function bootstrapTenant(Tenant $tenant): void
-    {
-        // Base de dados do tenant
-        config([
-            'database.connections.tenant.database' => $tenant->database_name,
-        ]);
-
-        DB::purge('tenant');
-        DB::reconnect('tenant');
-
-        // Disponível globalmente
-        app()->instance('tenant', $tenant);
-
-        // Parâmetro automático nas rotas
-        URL::defaults([
-            'tenant' => $tenant->subdomain,
-        ]);
     }
 }
